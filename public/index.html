@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>緑友役員会ツール</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Noto Sans JP',sans-serif;background:#FAF8F5;color:#19261F}
+header{background:#396B4E;color:#fff;padding:14px 20px;display:flex;align-items:center;gap:12px}
+header h1{margin:0;font-size:18px;font-weight:700}
+header .sub{font-size:12px;opacity:.8}
+nav{background:#fff;border-bottom:1px solid #E4E1D8;display:flex;gap:4px;padding:8px 12px;flex-wrap:wrap}
+nav button{border:1px solid #E4E1D8;background:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+nav button.active{background:#396B4E;color:#fff;border-color:#396B4E}
+main{max-width:960px;margin:0 auto;padding:20px}
+section{display:none}
+section.active{display:block}
+.card{background:#fff;border:1px solid #E4E1D8;border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{margin:0 0 12px;font-size:16px;color:#396B4E}
+.card h3{margin:12px 0 6px;font-size:14px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button.primary{background:#396B4E;color:#fff;border:none;padding:8px 16px;border-radius:8px;cursor:pointer}
+button.primary:disabled{opacity:.5;cursor:not-allowed}
+button.danger{background:#dc2626;color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+button.ghost{background:#fff;border:1px solid #E4E1D8;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px}
+input,textarea,select{border:1px solid #E4E1D8;border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit;width:100%}
+textarea{min-height:120px;resize:vertical}
+label{font-size:12px;color:#19261F80;display:block;margin-bottom:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px;border-bottom:1px solid #E4E1D8;text-align:left}
+th{background:#F0EDE6}
+.status{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#EAF2ED;color:#396B4E}
+.muted{color:#19261F80;font-size:12px}
+iframe{width:100%;height:480px;border:1px solid #E4E1D8;border-radius:8px;background:#fff}
+.toast{position:fixed;bottom:20px;right:20px;background:#19261F;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .3s}
+.toast.show{opacity:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>緑友役員会ツール</h1>
+  <span class="sub">活動記録・公約・目安箱・アンケート</span>
+</header>
+<nav>
+  <button data-tab="dashboard" class="active">ダッシュボード</button>
+  <button data-tab="generate">記事生成</button>
+  <button data-tab="promises">公約</button>
+  <button data-tab="suggest">目安箱</button>
+  <button data-tab="forms">アンケート</button>
+</nav>
+<main>
+  <!-- Dashboard -->
+  <section id="dashboard" class="active">
+    <div class="card">
+      <h2>状態</h2>
+      <div id="status">読み込み中...</div>
+    </div>
+    <div class="card">
+      <h2>最近の投稿</h2>
+      <div id="recentPosts"></div>
+    </div>
+    <div class="card">
+      <h2>下書き</h2>
+      <div id="drafts"></div>
+    </div>
+    <div class="card">
+      <h2>一括処理</h2>
+      <p class="muted">inbox/ のメモをまとめて下書き化します。</p>
+      <button class="primary" onclick="runInbox()">inbox/ を処理</button>
+    </div>
+  </section>
+
+  <!-- Generate -->
+  <section id="generate">
+    <div class="card">
+      <h2>記事の下書き生成</h2>
+      <label>内容メモ（Markdown可）</label>
+      <textarea id="note" placeholder="会議の内容をここに貼り付け..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <div style="flex:1"><label>カテゴリ</label>
+          <select id="gCategory"><option>会議</option><option>イベント</option><option>施策</option><option>点検</option><option>広報</option><option>その他</option></select></div>
+        <div style="flex:1"><label>日付</label><input id="gDate" type="date"></div>
+        <div style="flex:1"><label>タイトル（空欄ならAI）</label><input id="gTitle"></div>
+        <div style="flex:1"><label>サブタイトル（空欄ならAI）</label><input id="gSubtitle"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" onclick="generate()">生成</button>
+        <label style="margin:0"><input type="checkbox" id="gNoAi"> AIを使わない</label>
+      </div>
+      <div id="genResult" style="margin-top:12px"></div>
+    </div>
+    <div class="card" id="previewCard" style="display:none">
+      <h2>プレビュー</h2>
+      <iframe id="previewFrame"></iframe>
+      <div class="row" style="margin-top:8px">
+        <button class="primary" onclick="publishCurrent()">公開する</button>
+        <span class="muted" id="publishStatus"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Promises -->
+  <section id="promises">
+    <div class="card">
+      <h2>公約一覧</h2>
+      <div id="promiseList"></div>
+    </div>
+    <div class="card">
+      <h2>公約を追加</h2>
+      <div class="row">
+        <div style="flex:2"><label>タイトル</label><input id="pTitle"></div>
+        <div style="flex:1"><label>カテゴリ</label><input id="pCategory" value="学習環境"></div>
+        <div style="flex:1"><label>状態</label><select id="pStatus"><option>計画中</option><option>進行中</option><option>完了</option><option>保留</option></select></div>
+        <div style="flex:1"><label>進捗%</label><input id="pProgress" type="number" value="0" min="0" max="100"></div>
+      </div>
+      <label style="margin-top:8px">説明</label>
+      <textarea id="pDesc" style="min-height:60px"></textarea>
+      <div style="margin-top:8px"><button class="primary" onclick="addPromise()">追加</button></div>
+    </div>
+  </section>
+
+  <!-- Suggestions -->
+  <section id="suggest">
+    <div class="card">
+      <h2>目安箱一覧</h2>
+      <div id="suggestList"></div>
+    </div>
+  </section>
+
+  <!-- Forms -->
+  <section id="forms">
+    <div class="card">
+      <h2>アンケート一覧</h2>
+      <div id="formList"></div>
+    </div>
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
+async function api(path, opts){const r=await fetch(path, opts);const j=await r.json();if(!r.ok) throw new Error(j.error||r.statusText);return j;}
+
+// tabs
+$$('nav button').forEach(b=>b.addEventListener('click',()=>{
+  $$('nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  $$('main section').forEach(s=>s.classList.remove('active'));
+  $('#'+b.dataset.tab).classList.add('active');
+  loadTab(b.dataset.tab);
+}));
+function loadTab(t){ if(t==='dashboard') loadDashboard(); if(t==='promises') loadPromises(); if(t==='suggest') loadSuggest(); if(t==='forms') loadForms(); }
+
+// Dashboard
+async function loadDashboard(){
+  const s=await api('/api/status');
+  $('#status').innerHTML = `<div>AI: <b>${s.ai}</b></div><div>下書き: ${s.drafts.length}件 / inbox: ${s.inbox.length}件</div>`;
+  const recent = s.recentPosts.map(p=>`<div>${p.date} <b>${p.title}</b> <span class="muted">${p.category}</span></div>`).join('');
+  $('#recentPosts').innerHTML = recent || '<span class="muted">なし</span>';
+  const drafts = s.drafts.map(f=>`<div>${f}</div>`).join('');
+  $('#drafts').innerHTML = drafts || '<span class="muted">なし</span>';
+}
+async function runInbox(){
+  toast('CLIで node src/cli.mjs run を実行してください（サーバーからは未対応）');
+}
+
+// Generate
+let currentDraftFile = null;
+async function generate(){
+  const note = $('#note').value.trim();
+  if(!note){toast('内容メモを入力してください');return;}
+  const meta = {
+    category: $('#gCategory').value,
+    date: $('#gDate').value || new Date().toISOString().slice(0,10),
+    title: $('#gTitle').value.trim(),
+    subtitle: $('#gSubtitle').value.trim(),
+  };
+  $('#genResult').textContent = '生成中...';
+  try {
+    const r = await api('/api/generate', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({note, meta, noAi: $('#gNoAi').checked})});
+    currentDraftFile = r.saved;
+    $('#genResult').innerHTML = `<div>✓ 生成: <b>${r.draft.title}</b> (${r.draft.description.length}文字)</div><div class="muted">${r.saved}</div>`;
+    $('#previewCard').style.display='block';
+    $('#previewFrame').src = '/'+r.preview;
+  } catch(e){ $('#genResult').textContent = 'エラー: '+e.message; }
+}
+async function publishCurrent(){
+  if(!currentDraftFile){toast('下書きがありません');return;}
+  $('#publishStatus').textContent = '公開中...';
+  try {
+    const r = await api('/api/publish', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({file: currentDraftFile})});
+    $('#publishStatus').textContent = '✓ 公開しました: '+r.document.id;
+    toast('公開しました');
+    loadDashboard();
+  } catch(e){ $('#publishStatus').textContent = 'エラー: '+e.message; }
+}
+
+// Promises
+async function loadPromises(){
+  const rows = await api('/api/promises');
+  let html = '<table><tr><th>#</th><th>ID</th><th>状態</th><th>進捗</th><th>タイトル</th><th></th></tr>';
+  for(const p of rows){
+    html += `<tr>
+      <td>${String(p.order??'').padStart(2,'0')}</td>
+      <td class="muted">${p.id}</td>
+      <td><span class="status">${p.status||''}</span></td>
+      <td>${p.progress??0}%</td>
+      <td>${p.title}</td>
+      <td><button class="ghost" onclick="delPromise('${p.id}')">削除</button></td>
+    </tr>`;
+  }
+  html += '</table>';
+  $('#promiseList').innerHTML = html;
+}
+async function addPromise(){
+  const body = {
+    title: $('#pTitle').value.trim(),
+    category: $('#pCategory').value.trim(),
+    status: $('#pStatus').value,
+    progress: Number($('#pProgress').value),
+    description: $('#pDesc').value.trim(),
+  };
+  if(!body.title){toast('タイトルは必須です');return;}
+  try { await api('/api/promise-add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}); toast('追加しました'); $('#pTitle').value=''; $('#pDesc').value=''; loadPromises(); } catch(e){toast('エラー: '+e.message);}
+}
+async function delPromise(id){
+  if(!confirm(id+' を削除しますか？')) return;
+  try { await api('/api/promise-delete',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); toast('削除しました'); loadPromises(); } catch(e){toast('エラー: '+e.message);}
+}
+
+// Suggestions
+async function loadSuggest(){
+  const rows = await api('/api/suggestions');
+  if(!rows.length){ $('#suggestList').innerHTML='<span class="muted">目安箱の投稿はありません。</span>'; return; }
+  let html='';
+  for(const s of rows){
+    html += `<div class="card">
+      <div><b>${s.id}</b> [${s.status}] ${s.category||''} — ${s.content}</div>
+      <div class="muted">作者: ${s.is_anonymous?'匿名':s.author_name||'-'} / いいね: ${s.likes??0} / 公開: ${s.is_public}</div>
+      ${s.reply ? `<div style="margin-top:6px;padding:8px;background:#EAF2ED;border-radius:6px">↳ ${s.reply}</div>` : '<div class="muted" style="margin-top:6px">(未返信)</div>'}
+      <div class="row" style="margin-top:8px">
+        <input id="reply-${s.id}" placeholder="返信文" style="flex:1">
+        <select id="rstatus-${s.id}"><option>対応済</option><option>対応中</option><option>確認中</option></select>
+        <button class="primary" onclick="replySuggest('${s.id}')">返信</button>
+      </div>
+    </div>`;
+  }
+  $('#suggestList').innerHTML = html;
+}
+async function replySuggest(id){
+  const reply = $('#reply-'+id).value.trim();
+  const status = $('#rstatus-'+id).value;
+  if(!reply){toast('返信文を入力してください');return;}
+  try { await api('/api/suggest-reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,reply,status})}); toast('返信しました'); loadSuggest(); } catch(e){toast('エラー: '+e.message);}
+}
+
+// Forms
+async function loadForms(){
+  const rows = await api('/api/forms');
+  let html = '<table><tr><th>ID</th><th>タイトル</th><th>状態</th><th>期限</th><th>質問</th><th>回答</th><th></th></tr>';
+  for(const f of rows){
+    html += `<tr>
+      <td class="muted">${f.id}</td>
+      <td>${f.title}</td>
+      <td><span class="status">${f.is_open?'受付中':'締切'}</span></td>
+      <td>${f.due_date||'-'}</td>
+      <td>${f.questions?.length??0}</td>
+      <td>${f.responseCount}</td>
+      <td>${f.is_open?`<button class="ghost" onclick="closeForm('${f.id}')">締切</button>`:''}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  $('#formList').innerHTML = html;
+}
+async function closeForm(id){
+  if(!confirm(id+' を締め切りますか？')) return;
+  try { await api('/api/form-close',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); toast('締め切りました'); loadForms(); } catch(e){toast('エラー: '+e.message);}
+}
+
+// init
+$('#gDate').value = new Date().toISOString().slice(0,10);
+loadDashboard();
+</script>
+</body>
+</html>

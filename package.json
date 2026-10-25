@@ -1,0 +1,18 @@
+{
+  "name": "ryokuyu-autopost",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "緑友役員会ポータル（ryokuyukai.ai.studio）活動記録 自動投稿ツール",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "doctor": "node src/cli.mjs doctor",
+    "list": "node src/cli.mjs list",
+    "generate": "node src/cli.mjs generate",
+    "publish": "node src/cli.mjs publish",
+    "run": "node src/cli.mjs run",
+    "server": "node src/server.mjs"
+  }
+}

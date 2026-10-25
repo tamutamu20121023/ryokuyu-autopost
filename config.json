@@ -1,0 +1,35 @@
+{
+  "site": {
+    "projectId": "notional-medium-kcbh2",
+    "databaseId": "ai-studio-remix-2b3a7c66-953d-4cf0-b601-abea79aeafe9",
+    "apiKey": "AIzaSyA7XbSWffIJaan7i8y7y7WgcpJRngshQQI",
+    "origin": "https://ryokuyukai.ai.studio",
+    "baseUrl": "https://ryokuyukai.ai.studio"
+  },
+  "defaults": {
+    "category": "広報",
+    "author": "緑友役員会",
+    "imageUrl": ""
+  },
+  "categories": ["会議", "イベント", "施策", "点検", "広報", "その他"],
+  "ai": {
+    "provider": "auto",
+    "model": "gemini-3.8-flash",
+    "temperature": 0.65,
+    "maxOutputTokens": 4096,
+    "openai": {
+      "baseUrl": "https://api.openai.com/v1",
+      "model": "gpt-4o-mini"
+    }
+  },
+  "publish": {
+    "updateSiteNotice": true,
+    "noticeTitle": "【生徒会より】活動ブログを更新しました！",
+    "noticeButtonText": "→活動記録を確認する",
+    "noticeButtonUrl": "/activity"
+  },
+  "run": {
+    "autoPublish": false,
+    "moveProcessed": true
+  }
+}

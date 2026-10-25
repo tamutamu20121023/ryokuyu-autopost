@@ -1,0 +1,85 @@
+{
+  "title": "緑友役員会のあるべき姿",
+  "description": "学校生活をより良くするため、緑友役員会のあり方について生徒の皆さんのご意見をお聞きします。率直な回答をお願いします。",
+  "is_open": true,
+  "due_date": "2026-11-30",
+  "allow_late_submission": true,
+  "questions": [
+    {
+      "id": "q-1",
+      "label": "緑友役員会に最も期待する役割は？",
+      "type": "single",
+      "options": [
+        "活動の透明性・情報発信",
+        "生徒の声を拾う・目安箱対応",
+        "学校行事の企画・運営",
+        "施設・環境の改善",
+        "その他"
+      ],
+      "required": true,
+      "allow_anonymous": true
+    },
+    {
+      "id": "q-2",
+      "label": "緑友役員会の活動頻度について",
+      "type": "single",
+      "options": [
+        "もっと増やしてほしい",
+        "現状でちょうど良い",
+        "減らしてほしい",
+        "わからない"
+      ],
+      "required": true,
+      "allow_anonymous": true
+    },
+    {
+      "id": "q-3",
+      "label": "情報発信（サイト・ポップアップ等）のわかりやすさ",
+      "type": "single",
+      "options": [
+        "とてもわかりやすい",
+        "ややわかりやすい",
+        "普通",
+        "ややわかりにくい",
+        "わかりにくい"
+      ],
+      "required": true,
+      "allow_anonymous": true
+    },
+    {
+      "id": "q-4",
+      "label": "目安箱・アンケートへの対応速度",
+      "type": "single",
+      "options": [
+        "十分速い",
+        "やや速い",
+        "普通",
+        "やや遅い",
+        "遅い"
+      ],
+      "required": true,
+      "allow_anonymous": true
+    },
+    {
+      "id": "q-5",
+      "label": "緑友役員会のあるべき姿として最も重要だと思うことは？",
+      "type": "single",
+      "options": [
+        "生徒の意見を迅速に反映する",
+        "活動内容を透明に公開する",
+        "生徒と役員の双方向の対話",
+        "行事・環境改善の実現",
+        "すべて重要"
+      ],
+      "required": true,
+      "allow_anonymous": true
+    },
+    {
+      "id": "q-6",
+      "label": "自由記述（ご意見・ご要望）",
+      "type": "text",
+      "required": false,
+      "allow_anonymous": true
+    }
+  ]
+}
