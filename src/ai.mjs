@@ -18,7 +18,7 @@ export function resolveProvider(config, noAi = false) {
     if (geminiKey) {
       const primary = process.env.GEMINI_MODEL || config.ai.model;
       const fallbacks = (process.env.GEMINI_FALLBACK_MODELS ||
-        "gemini-3.5-flash,gemini-3-flash-preview")
+        "gemini-3.5-flash")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
@@ -46,7 +46,7 @@ export function resolveProvider(config, noAi = false) {
 async function callGemini({ apiKey, model, temperature, maxOutputTokens, system, user }) {
   const base = (process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
   const url = `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
-  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
+  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 15000);
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
@@ -59,7 +59,7 @@ async function callGemini({ apiKey, model, temperature, maxOutputTokens, system,
   };
 
   let lastError;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 1; attempt++) {
     try {
       const res = await fetch(url, {
         method: "POST",
@@ -70,7 +70,13 @@ async function callGemini({ apiKey, model, temperature, maxOutputTokens, system,
       const json = await res.json();
       if (!res.ok) {
         const message = json?.error?.message || `HTTP ${res.status}`;
-        if (res.status === 429 || res.status >= 500) throw new Error(message);
+        // クォータ超過はリトライしても無駄なので即座にエラー
+        if (res.status === 429 || /quota|rate.?limit/i.test(message)) {
+          const err = new Error(`Gemini APIの利用制限に達しました。しばらく待ってから再試行してください。\n詳細: ${message.slice(0, 200)}`);
+          err.fatal = true;
+          throw err;
+        }
+        if (res.status >= 500) throw new Error(message);
         const err = new Error(`Gemini API: ${message}`);
         err.fatal = true;
         throw err;
@@ -212,7 +218,7 @@ export async function generateForm({ topic, config }) {
   const system = "あなたは中学校の生徒会アンケート設計者です。指定されたテーマに沿ったアンケートの質問をJSON形式で生成してください。single（ラジオボタン）、multiple（チェックボックス）、text（自由記述）を組み合わせてください。";
   const user = `テーマ: ${topic}\n\n4〜6問のアンケートを生成してください。\n\n以下のJSON形式のみを返してください（説明文は不要）:\n{"title": "アンケートタイトル", "description": "説明文", "questions": [{"id": "q-1", "label": "質問文", "type": "single", "options": ["選択肢1", "選択肢2"], "required": true, "allow_anonymous": true}]}`;
 
-  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
+  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 15000);
   const models = provider.name === "gemini" ? (provider.models || [provider.model]) : [provider.model];
 
   let lastError;
@@ -243,7 +249,12 @@ export async function generateForm({ topic, config }) {
       const json = await res.json();
       if (!res.ok) {
         const msg = json?.error?.message || `HTTP ${res.status}`;
-        if (res.status === 429 || res.status >= 500) throw new Error(msg);
+        if (res.status === 429 || /quota|rate.?limit/i.test(msg)) {
+          const err = new Error(`Gemini APIの利用制限に達しました。しばらく待ってから再試行してください。\n詳細: ${msg.slice(0, 200)}`);
+          err.fatal = true;
+          throw err;
+        }
+        if (res.status >= 500) throw new Error(msg);
         const err = new Error(msg); err.fatal = true; throw err;
       }
 
