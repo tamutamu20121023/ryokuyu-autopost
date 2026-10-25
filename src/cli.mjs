@@ -268,7 +268,7 @@ async function cmdFormCreate(opts) {
   if (!file) throw new Error("JSONファイルを指定してください: form create forms/x.json");
   const abs = path.isAbsolute(file) ? file : path.join(ROOT, file);
   if (!fs.existsSync(abs)) throw new Error(`ファイルが見つかりません: ${abs}`);
-  const data = JSON.parse(fs.readFileSync(abs, "utf8"));
+  const data = JSON.parse(fs.readFileSync(abs, "utf8").replace(/^\uFEFF/, ""));
   if (!data.title) throw new Error("title は必須です");
   if (!Array.isArray(data.questions) || !data.questions.length) throw new Error("questions は配列で1件以上必要です");
   for (const q of data.questions) {
@@ -417,7 +417,7 @@ async function cmdPublish(opts) {
   if (!file) throw new Error("下書きJSONを指定してください: publish drafts/xxx.json（最新は publish latest）");
   const abs = resolveDraftPath(file);
   if (!fs.existsSync(abs)) throw new Error(`下書きが見つかりません: ${abs}`);
-  const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
+  const draft = JSON.parse(fs.readFileSync(abs, "utf8").replace(/^\uFEFF/, ""));
 
   const dryRun = Boolean(opts["dry-run"]);
   const notice = opts["no-notice"] ? false : undefined;
@@ -454,7 +454,7 @@ async function cmdPreview(opts) {
   if (!file) throw new Error("下書きJSONを指定してください（最新は preview latest）");
   const abs = resolveDraftPath(file);
   if (!fs.existsSync(abs)) throw new Error(`下書きが見つかりません: ${abs}`);
-  const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
+  const draft = JSON.parse(fs.readFileSync(abs, "utf8").replace(/^\uFEFF/, ""));
   const preview = writePreview(draft, config);
   console.log(preview);
 }

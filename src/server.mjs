@@ -26,10 +26,15 @@ function saveDraft(draft, outDir) {
   return file;
 }
 
+function readJsonFile(abs) {
+  let text = fs.readFileSync(abs, "utf8");
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  return JSON.parse(text);
+}
 function loadSchedule() {
   const file = path.join(ROOT, "schedule.json");
   if (!fs.existsSync(file)) return [];
-  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; }
+  try { return readJsonFile(path.join(ROOT, "schedule.json")); } catch { return []; }
 }
 function saveSchedule(jobs) {
   fs.writeFileSync(path.join(ROOT, "schedule.json"), JSON.stringify(jobs, null, 2), "utf8");
@@ -45,8 +50,12 @@ async function runScheduledTick() {
     saveSchedule(jobs);
     try {
       if (job.type === "activity" || !job.type) {
-        const abs = path.isAbsolute(job.file) ? job.file : path.join(ROOT, job.file);
-        const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
+        let file = job.file;
+        if (!path.isAbsolute(file) && !file.startsWith("drafts") && !file.startsWith("inbox")) {
+          file = path.join("drafts", file);
+        }
+        const abs = path.join(ROOT, file);
+        const draft = readJsonFile(abs);
         const result = await publishDraft(draft, config, { dryRun: false, notice: job.notice, force: false });
         job.result = { id: result.document.id, url: `${config.site.baseUrl}/activity/${result.document.id}` };
       } else if (job.type === "promise-update") {
@@ -149,7 +158,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/drafts" && req.method === "GET") {
       const files = fs.readdirSync(path.join(ROOT, "drafts")).filter((f) => f.endsWith(".json"));
       const drafts = files.map((f) => {
-        const d = JSON.parse(fs.readFileSync(path.join(ROOT, "drafts", f), "utf8"));
+        const d = JSON.parse(fs.readFileSync(path.join(ROOT, "drafts", f), "utf8").replace(/^\uFEFF/, ""));
         return { file: f, id: d.id, title: d.title, date: d.date, category: d.category };
       });
       return json(res, 200, drafts);
@@ -157,7 +166,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === "/api/draft" && req.method === "GET") {
       const file = url.searchParams.get("file");
       const abs = path.join(ROOT, "drafts", file);
-      const d = JSON.parse(fs.readFileSync(abs, "utf8"));
+      const d = readJsonFile(abs);
       return json(res, 200, d);
     }
     if (pathname === "/api/generate" && req.method === "POST") {
@@ -177,7 +186,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       const file = body.file;
       const abs = path.isAbsolute(file) ? file : path.join(ROOT, file);
-      const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
+      const draft = readJsonFile(abs);
       const result = await publishDraft(draft, config, { dryRun: !!body.dryRun, notice: body.notice, force: !!body.force });
       return json(res, 200, result);
     }
