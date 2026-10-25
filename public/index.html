@@ -237,7 +237,7 @@ async function generate(){
   if(!note){toast('内容メモを入力してください');return;}
   const meta = {
     category: $('#gCategory').value,
-    date: $('#gDate').value || new Date().toISOString().slice(0,10),
+    date: $('#gDate').value || todayJst(),
     title: $('#gTitle').value.trim(),
     subtitle: $('#gSubtitle').value.trim(),
   };
@@ -275,7 +275,7 @@ async function loadPromises(){
   const rows = await api('/api/promises');
   let html = '<table><tr><th>#</th><th>状態</th><th>進捗</th><th>タイトル</th><th>操作</th></tr>';
   for(const p of rows){
-    const note = `---\ntitle: 【後期役員会】${p.title}\ncategory: 施策\ndate: ${new Date().toISOString().slice(0,10)}\n---\n\n新しい公約「${p.title}」を追加しました。\n\n${p.description||''}\n\n状態: ${p.status} / 進捗: ${p.progress}%`;
+    const note = `---\ntitle: 【後期役員会】${p.title}\ncategory: 施策\ndate: ${todayJst()}\n---\n\n新しい公約「${p.title}」を追加しました。\n\n${p.description||''}\n\n状態: ${p.status} / 進捗: ${p.progress}%`;
     html += `<tr>
       <td>${String(p.order??'').padStart(2,'0')}</td>
       <td><select id="ps-${p.id}"><option ${p.status==='計画中'?'selected':''}>計画中</option><option ${p.status==='進行中'?'selected':''}>進行中</option><option ${p.status==='完了'?'selected':''}>完了</option><option ${p.status==='保留'?'selected':''}>保留</option></select></td>
@@ -326,7 +326,7 @@ async function loadSuggest(){
         <input id="reply-${s.id}" placeholder="返信文" style="flex:1">
         <select id="rstatus-${s.id}"><option>対応済</option><option>対応中</option><option>確認中</option></select>
         <button class="primary" onclick="replySuggest('${s.id}')">返信</button>
-        <button class="ghost" onclick="prefillGenerate(${JSON.stringify('---\ntitle: 【後期役員会】目安箱への返信\ncategory: 広報\ndate: ' + new Date().toISOString().slice(0,10) + '\n---\n\n目安箱に寄せられた意見について、回答しました。\n\n### 生徒からの意見\n' + s.content + '\n\n### 返信\n' + (s.reply||'') + '\n\nカテゴリ: ' + (s.category||''))})">記事化</button>
+        <button class="ghost" onclick="prefillGenerate(${JSON.stringify('---\ntitle: 【後期役員会】目安箱への返信\ncategory: 広報\ndate: ' + todayJst() + '\n---\n\n目安箱に寄せられた意見について、回答しました。\n\n### 生徒からの意見\n' + s.content + '\n\n### 返信\n' + (s.reply||'') + '\n\nカテゴリ: ' + (s.category||''))})">記事化</button>
       </div>
     </div>`;
   }
@@ -472,7 +472,7 @@ async function loadForms(){
 function articleFromForm(id){
   const f = formsData.find(x=>x.id===id);
   if(!f) return;
-  const note = `---\ntitle: 【後期役員会】アンケート「${f.title}」\ncategory: 広報\ndate: ${new Date().toISOString().slice(0,10)}\n---\n\nアンケート「${f.title}」を実施しました。\n\n${f.description||''}\n\n締切: ${f.due_date||'-'}\n回答数: ${f.responseCount}件\n\n質問: ${f.questions?.length??0}件`;
+  const note = `---\ntitle: 【後期役員会】アンケート「${f.title}」\ncategory: 広報\ndate: ${todayJst()}\n---\n\nアンケート「${f.title}」を実施しました。\n\n${f.description||''}\n\n締切: ${f.due_date||'-'}\n回答数: ${f.responseCount}件\n\n質問: ${f.questions?.length??0}件`;
   prefillGenerate(note);
 }
 async function closeForm(id){
@@ -591,7 +591,7 @@ async function schedulePost(){
   try {
     if(type === 'form-create'){
       const gen = await api('/api/form-generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({topic: body.topic})});
-      body.data = { title: gen.title, description: gen.description, is_open: true, due_date: body.dueDate || '', allow_late_submission: true, created_date: new Date().toISOString().slice(0,10), questions: gen.questions };
+      body.data = { title: gen.title, description: gen.description, is_open: true, due_date: body.dueDate || '', allow_late_submission: true, created_date: todayJst(), questions: gen.questions };
       delete body.topic;
     }
     const r = await api('/api/schedule',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
@@ -617,7 +617,8 @@ const formTemplate = {
   ]
 };
 $('#formJson').value = JSON.stringify(formTemplate, null, 2);
-$('#gDate').value = new Date().toISOString().slice(0,10);
+function todayJst(){ const now=new Date(); const jst=new Date(now.getTime()+9*60*60*1000); return jst.toISOString().slice(0,10); }
+$('#gDate').value = todayJst();
 loadDashboard();
 </script>
 </body>
