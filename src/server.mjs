@@ -44,12 +44,35 @@ async function runScheduledTick() {
     job.status = "running";
     saveSchedule(jobs);
     try {
-      const abs = path.isAbsolute(job.file) ? job.file : path.join(ROOT, job.file);
-      const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
-      const result = await publishDraft(draft, config, { dryRun: false, notice: job.notice, force: false });
+      if (job.type === "activity" || !job.type) {
+        const abs = path.isAbsolute(job.file) ? job.file : path.join(ROOT, job.file);
+        const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
+        const result = await publishDraft(draft, config, { dryRun: false, notice: job.notice, force: false });
+        job.result = { id: result.document.id, url: `${config.site.baseUrl}/activity/${result.document.id}` };
+      } else if (job.type === "promise-update") {
+        await store.updateDoc(`promises/${job.promiseId}`, job.patch);
+        job.result = { promiseId: job.promiseId, patch: job.patch };
+      } else if (job.type === "promise-add") {
+        const id = job.promiseId || `promise-${Date.now()}`;
+        const doc = { id, ...job.data };
+        await store.createDoc(`promises/${id}`, doc);
+        job.result = { id };
+      } else if (job.type === "suggest-reply") {
+        await store.updateDoc(`suggestions/${job.suggestionId}`, { reply: job.reply, status: job.status2 || "対応済" });
+        job.result = { suggestionId: job.suggestionId };
+      } else if (job.type === "form-create") {
+        const id = job.formId || `form-${Date.now()}`;
+        const doc = { id, ...job.data };
+        await store.createDoc(`forms/${id}`, doc);
+        job.result = { id };
+      } else if (job.type === "form-close") {
+        await store.updateDoc(`forms/${job.formId}`, { is_open: false });
+        job.result = { formId: job.formId };
+      } else {
+        throw new Error(`不明なタイプ: ${job.type}`);
+      }
       job.status = "done";
       job.publishedAt = new Date().toISOString();
-      job.result = { id: result.document.id, url: `${config.site.baseUrl}/activity/${result.document.id}` };
     } catch (e) {
       job.status = "failed";
       job.error = e.message;
@@ -188,6 +211,12 @@ const server = http.createServer(async (req, res) => {
       await store.updateDoc(`suggestions/${body.id}`, { reply: body.reply, status: body.status || "対応済" });
       return json(res, 200, { ok: true });
     }
+    if (pathname === "/api/form-generate" && req.method === "POST") {
+      const body = await readBody(req);
+      const { generateForm } = await import("./ai.mjs");
+      const result = await generateForm({ topic: body.topic, config });
+      return json(res, 200, result);
+    }
     if (pathname === "/api/form-create" && req.method === "POST") {
       const body = await readBody(req);
       const id = body.id || `form-${Date.now()}`;
@@ -205,9 +234,9 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === "/api/schedule" && req.method === "POST") {
       const body = await readBody(req);
-      if (!body.file || !body.publishAt) throw new Error("file と publishAt は必須です");
+      if (!body.publishAt) throw new Error("publishAt は必須です");
       const jobs = loadSchedule();
-      const job = { id: `sched-${Date.now()}`, file: body.file, publishAt: body.publishAt, notice: body.notice, status: "pending", createdAt: new Date().toISOString() };
+      const job = { id: `sched-${Date.now()}`, status: "pending", createdAt: new Date().toISOString(), ...body };
       jobs.push(job);
       saveSchedule(jobs);
       return json(res, 200, job);

@@ -205,7 +205,66 @@ export async function generateArticle({ note, meta, promises, config, today, noA
   return { ...normalized, generatedBy: `${provider.name}:${usedModel}` };
 }
 
-/** AIなしでも使えるテンプレート生成（front matter + 本文Markdown） */
+export async function generateForm({ topic, config }) {
+  const provider = resolveProvider(config);
+  if (provider.name === "template") throw new Error("AIキーが必要です");
+
+  const system = "あなたは中学校の生徒会アンケート設計者です。指定されたテーマに沿ったアンケートの質問をJSON形式で生成してください。single（ラジオボタン）、multiple（チェックボックス）、text（自由記述）を組み合わせてください。";
+  const user = `テーマ: ${topic}\n\n4〜6問のアンケートを生成してください。\n\n以下のJSON形式のみを返してください（説明文は不要）:\n{"title": "アンケートタイトル", "description": "説明文", "questions": [{"id": "q-1", "label": "質問文", "type": "single", "options": ["選択肢1", "選択肢2"], "required": true, "allow_anonymous": true}]}`;
+
+  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
+  const models = provider.name === "gemini" ? (provider.models || [provider.model]) : [provider.model];
+
+  let lastError;
+  for (const model of models) {
+    try {
+      let url, body, headers = { "content-type": "application/json" };
+      if (provider.name === "gemini") {
+        const base = (process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
+        url = `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${provider.apiKey}`;
+        body = {
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: { temperature: config.ai.temperature, maxOutputTokens: config.ai.maxOutputTokens, responseMimeType: "application/json" },
+        };
+      } else {
+        url = `${String(provider.baseUrl).replace(/\/+$/, "")}/chat/completions`;
+        headers.authorization = `Bearer ${provider.apiKey}`;
+        body = {
+          model,
+          temperature: config.ai.temperature,
+          max_tokens: config.ai.maxOutputTokens,
+          messages: [{ role: "system", content: system }, { role: "user", content: user }],
+          response_format: { type: "json_object" },
+        };
+      }
+
+      const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
+      const json = await res.json();
+      if (!res.ok) {
+        const msg = json?.error?.message || `HTTP ${res.status}`;
+        if (res.status === 429 || res.status >= 500) throw new Error(msg);
+        const err = new Error(msg); err.fatal = true; throw err;
+      }
+
+      let text;
+      if (provider.name === "gemini") {
+        text = json?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
+      } else {
+        text = json?.choices?.[0]?.message?.content || "";
+      }
+      if (!text) throw new Error("AIが空の応答を返しました");
+
+      const parsed = extractJson(text);
+      if (!parsed.title || !Array.isArray(parsed.questions)) throw new Error("AIの応答形式が不正です");
+      return { ...parsed, generatedBy: `${provider.name}:${model}` };
+    } catch (err) {
+      lastError = err;
+      if (err.fatal) throw err;
+    }
+  }
+  throw new Error(`AIの全モデルが応答しませんでした。最後のエラー: ${lastError?.message || lastError}`);
+}
 export function templateArticle({ note, meta, today }) {
   if (!meta.title || !meta.subtitle) {
     throw new Error(
