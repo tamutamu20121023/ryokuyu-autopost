@@ -26,6 +26,39 @@ function saveDraft(draft, outDir) {
   return file;
 }
 
+function loadSchedule() {
+  const file = path.join(ROOT, "schedule.json");
+  if (!fs.existsSync(file)) return [];
+  try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return []; }
+}
+function saveSchedule(jobs) {
+  fs.writeFileSync(path.join(ROOT, "schedule.json"), JSON.stringify(jobs, null, 2), "utf8");
+}
+async function runScheduledTick() {
+  const now = new Date();
+  const jobs = loadSchedule();
+  let changed = false;
+  for (const job of jobs) {
+    if (job.status !== "pending") continue;
+    if (new Date(job.publishAt) > now) continue;
+    job.status = "running";
+    saveSchedule(jobs);
+    try {
+      const abs = path.isAbsolute(job.file) ? job.file : path.join(ROOT, job.file);
+      const draft = JSON.parse(fs.readFileSync(abs, "utf8"));
+      const result = await publishDraft(draft, config, { dryRun: false, notice: job.notice, force: false });
+      job.status = "done";
+      job.publishedAt = new Date().toISOString();
+      job.result = { id: result.document.id, url: `${config.site.baseUrl}/activity/${result.document.id}` };
+    } catch (e) {
+      job.status = "failed";
+      job.error = e.message;
+    }
+    changed = true;
+  }
+  if (changed) saveSchedule(jobs);
+}
+
 function json(res, status, data) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" });
   res.end(JSON.stringify(data));
@@ -55,7 +88,6 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
     return res.end(html);
   }
-  // static files (drafts previews etc.)
   if (pathname.startsWith("/drafts/")) {
     const rel = pathname.slice(1);
     const abs = path.join(ROOT, rel);
@@ -168,11 +200,37 @@ const server = http.createServer(async (req, res) => {
       await store.updateDoc(`forms/${body.id}`, { is_open: false });
       return json(res, 200, { ok: true });
     }
+    if (pathname === "/api/schedule" && req.method === "GET") {
+      return json(res, 200, loadSchedule());
+    }
+    if (pathname === "/api/schedule" && req.method === "POST") {
+      const body = await readBody(req);
+      if (!body.file || !body.publishAt) throw new Error("file と publishAt は必須です");
+      const jobs = loadSchedule();
+      const job = { id: `sched-${Date.now()}`, file: body.file, publishAt: body.publishAt, notice: body.notice, status: "pending", createdAt: new Date().toISOString() };
+      jobs.push(job);
+      saveSchedule(jobs);
+      return json(res, 200, job);
+    }
+    if (pathname === "/api/schedule/cancel" && req.method === "POST") {
+      const body = await readBody(req);
+      const jobs = loadSchedule();
+      const job = jobs.find((j) => j.id === body.id);
+      if (!job) throw new Error("予約が見つかりません");
+      if (job.status === "done") throw new Error("公開済みの予約はキャンセルできません");
+      job.status = "cancelled";
+      saveSchedule(jobs);
+      return json(res, 200, { ok: true });
+    }
     json(res, 404, { error: "not found" });
   } catch (e) {
     json(res, 500, { error: e.message });
   }
 });
+
+// scheduler: check every 60s
+setInterval(() => { runScheduledTick().catch((e) => console.error("sched tick error:", e.message)); }, 60000);
+setTimeout(() => { runScheduledTick().catch((e) => console.error("sched tick error:", e.message)); }, 5000);
 
 server.listen(PORT, () => {
   console.log(`緑友役員会ツール サーバー起動: http://localhost:${PORT}`);

@@ -50,6 +50,7 @@ iframe{width:100%;height:480px;border:1px solid #E4E1D8;border-radius:8px;backgr
   <button data-tab="promises">公約</button>
   <button data-tab="suggest">目安箱</button>
   <button data-tab="forms">アンケート</button>
+  <button data-tab="schedule">予約投稿</button>
 </nav>
 <main>
   <!-- Dashboard -->
@@ -136,6 +137,31 @@ iframe{width:100%;height:480px;border:1px solid #E4E1D8;border-radius:8px;backgr
       <h2>アンケート一覧</h2>
       <div id="formList"></div>
     </div>
+    <div class="card">
+      <h2>アンケートを作成</h2>
+      <p class="muted">JSON形式で定義します。質問の type は single（ラジオ）/ multiple（チェック）/ text（自由記述）。</p>
+      <textarea id="formJson" style="min-height:200px;font-family:monospace;font-size:12px"></textarea>
+      <div style="margin-top:8px"><button class="primary" onclick="createForm()">作成</button></div>
+    </div>
+  </section>
+
+  <!-- Schedule -->
+  <section id="schedule">
+    <div class="card">
+      <h2>予約投稿</h2>
+      <div class="row">
+        <div style="flex:2"><label>下書き</label>
+          <select id="schedDraft"></select></div>
+        <div style="flex:1"><label>公開日時</label><input id="schedAt" type="datetime-local"></div>
+        <div style="flex:1"><label>ポップアップ更新</label>
+          <select id="schedNotice"><option value="true">する</option><option value="false">しない</option></select></div>
+      </div>
+      <div style="margin-top:8px"><button class="primary" onclick="schedulePost()">予約する</button></div>
+    </div>
+    <div class="card">
+      <h2>予約一覧</h2>
+      <div id="schedList"></div>
+    </div>
   </section>
 </main>
 <div id="toast" class="toast"></div>
@@ -154,7 +180,7 @@ $$('nav button').forEach(b=>b.addEventListener('click',()=>{
   $('#'+b.dataset.tab).classList.add('active');
   loadTab(b.dataset.tab);
 }));
-function loadTab(t){ if(t==='dashboard') loadDashboard(); if(t==='promises') loadPromises(); if(t==='suggest') loadSuggest(); if(t==='forms') loadForms(); }
+function loadTab(t){ if(t==='dashboard') loadDashboard(); if(t==='promises') loadPromises(); if(t==='suggest') loadSuggest(); if(t==='forms') loadForms(); if(t==='schedule') loadSchedule(); }
 
 // Dashboard
 async function loadDashboard(){
@@ -203,19 +229,26 @@ async function publishCurrent(){
 // Promises
 async function loadPromises(){
   const rows = await api('/api/promises');
-  let html = '<table><tr><th>#</th><th>ID</th><th>状態</th><th>進捗</th><th>タイトル</th><th></th></tr>';
+  let html = '<table><tr><th>#</th><th>状態</th><th>進捗</th><th>タイトル</th><th>操作</th></tr>';
   for(const p of rows){
     html += `<tr>
       <td>${String(p.order??'').padStart(2,'0')}</td>
-      <td class="muted">${p.id}</td>
-      <td><span class="status">${p.status||''}</span></td>
-      <td>${p.progress??0}%</td>
+      <td><select id="ps-${p.id}"><option ${p.status==='計画中'?'selected':''}>計画中</option><option ${p.status==='進行中'?'selected':''}>進行中</option><option ${p.status==='完了'?'selected':''}>完了</option><option ${p.status==='保留'?'selected':''}>保留</option></select></td>
+      <td><input id="pp-${p.id}" type="number" value="${p.progress??0}" min="0" max="100" style="width:60px"></td>
       <td>${p.title}</td>
-      <td><button class="ghost" onclick="delPromise('${p.id}')">削除</button></td>
+      <td>
+        <button class="ghost" onclick="updPromise('${p.id}')">更新</button>
+        <button class="danger" onclick="delPromise('${p.id}')">削除</button>
+      </td>
     </tr>`;
   }
   html += '</table>';
   $('#promiseList').innerHTML = html;
+}
+async function updPromise(id){
+  const status = $('#ps-'+id).value;
+  const progress = Number($('#pp-'+id).value);
+  try { await api('/api/promise-update',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,status,progress})}); toast('更新しました'); loadPromises(); } catch(e){toast('エラー: '+e.message);}
 }
 async function addPromise(){
   const body = {
@@ -281,8 +314,59 @@ async function closeForm(id){
   if(!confirm(id+' を締め切りますか？')) return;
   try { await api('/api/form-close',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); toast('締め切りました'); loadForms(); } catch(e){toast('エラー: '+e.message);}
 }
+async function createForm(){
+  let data;
+  try { data = JSON.parse($('#formJson').value); } catch(e){ toast('JSONが不正です: '+e.message); return; }
+  try { const r = await api('/api/form-create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)}); toast('作成しました: '+r.id); loadForms(); } catch(e){ toast('エラー: '+e.message); }
+}
+
+// Schedule
+async function loadSchedule(){
+  const jobs = await api('/api/schedule');
+  // populate draft dropdown
+  const drafts = await api('/api/drafts');
+  $('#schedDraft').innerHTML = drafts.map(d=>`<option value="${d.file}">${d.title} (${d.date})</option>`).join('') || '<option value="">下書きなし</option>';
+  if(!jobs.length){ $('#schedList').innerHTML='<span class="muted">予約はありません。</span>'; return; }
+  let html = '<table><tr><th>ID</th><th>下書き</th><th>公開日時</th><th>状態</th><th></th></tr>';
+  for(const j of jobs){
+    const cancelBtn = (j.status==='pending') ? `<button class="danger" onclick="cancelSched('${j.id}')">取消</button>` : '';
+    html += `<tr>
+      <td class="muted">${j.id}</td>
+      <td>${j.file}</td>
+      <td>${j.publishAt}</td>
+      <td><span class="status">${j.status}</span>${j.error? ' '+j.error:''}</td>
+      <td>${cancelBtn}</td>
+    </tr>`;
+  }
+  html += '</table>';
+  $('#schedList').innerHTML = html;
+}
+async function schedulePost(){
+  const file = $('#schedDraft').value;
+  const at = $('#schedAt').value;
+  if(!file){toast('下書きを選択してください');return;}
+  if(!at){toast('公開日時を指定してください');return;}
+  const notice = $('#schedNotice').value === 'true';
+  try { const r = await api('/api/schedule',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({file, publishAt: new Date(at).toISOString(), notice})}); toast('予約しました: '+r.id); loadSchedule(); } catch(e){ toast('エラー: '+e.message); }
+}
+async function cancelSched(id){
+  if(!confirm(id+' をキャンセルしますか？')) return;
+  try { await api('/api/schedule/cancel',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id})}); toast('キャンセルしました'); loadSchedule(); } catch(e){toast('エラー: '+e.message);}
+}
 
 // init
+const formTemplate = {
+  "title": "アンケートタイトル",
+  "description": "説明文",
+  "is_open": true,
+  "due_date": "2026-12-31",
+  "allow_late_submission": true,
+  "questions": [
+    {"id":"q-1","label":"質問文","type":"single","options":["選択肢1","選択肢2","選択肢3"],"required":true,"allow_anonymous":true},
+    {"id":"q-2","label":"自由記述","type":"text","required":false,"allow_anonymous":true}
+  ]
+};
+$('#formJson').value = JSON.stringify(formTemplate, null, 2);
 $('#gDate').value = new Date().toISOString().slice(0,10);
 loadDashboard();
 </script>
