@@ -139,9 +139,23 @@ iframe{width:100%;height:480px;border:1px solid #E4E1D8;border-radius:8px;backgr
     </div>
     <div class="card">
       <h2>アンケートを作成</h2>
-      <p class="muted">JSON形式で定義します。質問の type は single（ラジオ）/ multiple（チェック）/ text（自由記述）。</p>
-      <textarea id="formJson" style="min-height:200px;font-family:monospace;font-size:12px"></textarea>
-      <div style="margin-top:8px"><button class="primary" onclick="createForm()">作成</button></div>
+      <div class="row">
+        <div style="flex:2"><label>タイトル</label><input id="fTitle" placeholder="緑友役員会のあるべき姿"></div>
+        <div style="flex:1"><label>締切日</label><input id="fDue" type="date"></div>
+      </div>
+      <label style="margin-top:8px">説明</label>
+      <textarea id="fDesc" style="min-height:40px" placeholder="学校生活をより良くするため..."></textarea>
+      <h3>質問</h3>
+      <div id="fQuestions"></div>
+      <button class="ghost" onclick="addQuestion()" style="margin-top:8px">+ 質問を追加</button>
+      <div style="margin-top:12px">
+        <button class="primary" onclick="createForm()">作成</button>
+        <button class="ghost" onclick="toggleJsonMode()" style="margin-left:8px">JSONで編集</button>
+      </div>
+      <div id="fJsonWrap" style="display:none;margin-top:8px">
+        <textarea id="formJson" style="min-height:200px;font-family:monospace;font-size:12px"></textarea>
+      </div>
+      <div id="fResult" style="margin-top:8px" class="muted"></div>
     </div>
   </section>
 
@@ -197,6 +211,8 @@ async function runInbox(){
 
 // Generate
 let currentDraftFile = null;
+let genAbort = null;
+let genTimer = null;
 async function generate(){
   const note = $('#note').value.trim();
   if(!note){toast('内容メモを入力してください');return;}
@@ -206,15 +222,24 @@ async function generate(){
     title: $('#gTitle').value.trim(),
     subtitle: $('#gSubtitle').value.trim(),
   };
-  $('#genResult').textContent = '生成中...';
+  genAbort = new AbortController();
+  const start = Date.now();
+  $('#genResult').innerHTML = '生成中... <span id="genElapsed">(0秒)</span> <button class="ghost" onclick="cancelGen()">キャンセル</button>';
+  genTimer = setInterval(()=>{ const e=document.getElementById('genElapsed'); if(e) e.textContent='('+Math.floor((Date.now()-start)/1000)+'秒)'; }, 1000);
   try {
-    const r = await api('/api/generate', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({note, meta, noAi: $('#gNoAi').checked})});
-    currentDraftFile = r.saved;
+    const r = await api('/api/generate', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({note, meta, noAi: $('#gNoAi').checked}), signal: genAbort.signal});
     $('#genResult').innerHTML = `<div>✓ 生成: <b>${r.draft.title}</b> (${r.draft.description.length}文字)</div><div class="muted">${r.saved}</div>`;
+    currentDraftFile = r.saved;
     $('#previewCard').style.display='block';
     $('#previewFrame').src = '/'+r.preview;
-  } catch(e){ $('#genResult').textContent = 'エラー: '+e.message; }
+  } catch(e){
+    if(e.name==='AbortError') $('#genResult').textContent = 'キャンセルしました。';
+    else $('#genResult').textContent = 'エラー: '+e.message;
+  } finally {
+    clearInterval(genTimer); genTimer=null; genAbort=null;
+  }
 }
+function cancelGen(){ if(genAbort) genAbort.abort(); }
 async function publishCurrent(){
   if(!currentDraftFile){toast('下書きがありません');return;}
   $('#publishStatus').textContent = '公開中...';
@@ -292,6 +317,98 @@ async function replySuggest(id){
   try { await api('/api/suggest-reply',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,reply,status})}); toast('返信しました'); loadSuggest(); } catch(e){toast('エラー: '+e.message);}
 }
 
+let questionCounter = 0;
+function addQuestion(q){
+  questionCounter++;
+  const id = q?.id || ('q-'+questionCounter);
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.style.background = '#F8F6F2';
+  div.dataset.qid = id;
+  div.innerHTML = `
+    <div class="row">
+      <div style="flex:2"><label>質問文</label><input class="q-label" value="${q?.label||''}" placeholder="緑友役員会に最も期待する役割は？"></div>
+      <div style="flex:1"><label>タイプ</label>
+        <select class="q-type" onchange="toggleOpts(this)">
+          <option value="single" ${q?.type==='single'?'selected':''}>ラジオ（単一選択）</option>
+          <option value="multiple" ${q?.type==='multiple'?'selected':''}>チェック（複数選択）</option>
+          <option value="text" ${q?.type==='text'?'selected':''}>自由記述（テキスト）</option>
+        </select></div>
+      <div style="flex:0"><button class="danger" onclick="this.closest('.card').remove()" style="margin-top:18px">削除</button></div>
+    </div>
+    <div class="q-opts" style="margin-top:8px;${q?.type==='text'?'display:none':''}">
+      <label>選択肢（1行に1つ）</label>
+      <textarea class="q-options" style="min-height:60px">${(q?.options||[]).join('\\n')}</textarea>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label style="margin:0"><input type="checkbox" class="q-required" ${q?.required!==false?'checked':''}> 必須</label>
+      <label style="margin:0;margin-left:12px"><input type="checkbox" class="q-anon" ${q?.allow_anonymous!==false?'checked':''}> 匿名OK</label>
+    </div>
+  `;
+  $('#fQuestions').appendChild(div);
+}
+function toggleOpts(sel){
+  const opts = sel.closest('.card').querySelector('.q-opts');
+  opts.style.display = sel.value === 'text' ? 'none' : 'block';
+}
+function buildFormJson(){
+  const questions = [];
+  let i = 0;
+  $('#fQuestions').querySelectorAll('.card').forEach(card => {
+    i++;
+    const type = card.querySelector('.q-type').value;
+    const optsText = card.querySelector('.q-options').value.trim();
+    const opts = optsText ? optsText.split('\\n').map(s=>s.trim()).filter(Boolean) : [];
+    const q = {
+      id: 'q-'+i,
+      label: card.querySelector('.q-label').value.trim(),
+      type,
+      required: card.querySelector('.q-required').checked,
+      allow_anonymous: card.querySelector('.q-anon').checked,
+    };
+    if(type !== 'text') q.options = opts;
+    questions.push(q);
+  });
+  return {
+    title: $('#fTitle').value.trim(),
+    description: $('#fDesc').value.trim(),
+    is_open: true,
+    due_date: $('#fDue').value || '',
+    allow_late_submission: true,
+    questions,
+  };
+}
+function toggleJsonMode(){
+  const w = $('#fJsonWrap');
+  if(w.style.display === 'none'){
+    w.style.display = 'block';
+    $('#formJson').value = JSON.stringify(buildFormJson(), null, 2);
+  } else {
+    w.style.display = 'none';
+  }
+}
+async function createForm(){
+  let data;
+  if($('#fJsonWrap').style.display !== 'none'){
+    try { data = JSON.parse($('#formJson').value); } catch(e){ toast('JSONが不正です: '+e.message); return; }
+  } else {
+    data = buildFormJson();
+  }
+  if(!data.title){ toast('タイトルを入力してください'); return; }
+  if(!data.questions.length){ toast('質問を1つ以上追加してください'); return; }
+  for(const q of data.questions){
+    if(!q.label){ toast('質問文が空です'); return; }
+    if(q.type !== 'text' && (!q.options || !q.options.length)){ toast(q.id+' に選択肢が必要です'); return; }
+  }
+  try {
+    const r = await api('/api/form-create',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});
+    toast('作成しました: '+r.id);
+    $('#fTitle').value=''; $('#fDesc').value=''; $('#fDue').value=''; $('#fQuestions').innerHTML='';
+    $('#fJsonWrap').style.display='none';
+    loadForms();
+  } catch(e){ toast('エラー: '+e.message); }
+}
+
 // Forms
 async function loadForms(){
   const rows = await api('/api/forms');
@@ -309,6 +426,7 @@ async function loadForms(){
   }
   html += '</table>';
   $('#formList').innerHTML = html;
+  if(!$('#fQuestions').children.length) addQuestion({label:'緑友役員会に最も期待する役割は？', type:'single', options:['活動の透明性・情報発信','生徒の声を拾う・目安箱対応','学校行事の企画・運営','施設・環境の改善','その他'], required:true, allow_anonymous:true});
 }
 async function closeForm(id){
   if(!confirm(id+' を締め切りますか？')) return;

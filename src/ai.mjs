@@ -18,7 +18,7 @@ export function resolveProvider(config, noAi = false) {
     if (geminiKey) {
       const primary = process.env.GEMINI_MODEL || config.ai.model;
       const fallbacks = (process.env.GEMINI_FALLBACK_MODELS ||
-        "gemini-3.5-flash,gemini-3-flash-preview,gemini-3.1-flash-lite")
+        "gemini-3.5-flash,gemini-3-flash-preview")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
@@ -46,7 +46,7 @@ export function resolveProvider(config, noAi = false) {
 async function callGemini({ apiKey, model, temperature, maxOutputTokens, system, user }) {
   const base = (process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
   const url = `${base}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`;
-  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 45000);
+  const timeoutMs = Number(process.env.AI_TIMEOUT_MS || 25000);
   const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: [{ role: "user", parts: [{ text: user }] }],
