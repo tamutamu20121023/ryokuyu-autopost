@@ -96,7 +96,7 @@ promise_ids: promise-1792730407800
 - `date` を省くと今日の日付（日本時間）
 - `promise_ids` は `node src/cli.mjs promises` で確認できます
 
-> `date` は記事の表示日です。未来の日付にしても予約投稿にはならず、公開した時点で一覧に出ます。
+> `date` は記事の表示日です。未来の日付にしても予約投稿にはなりません。予約したい場合は下の「予約投稿する」を使ってください。
 
 ### ③ 下書きを作る
 ```powershell
@@ -119,6 +119,52 @@ node src/cli.mjs publish drafts/xxxx.json --yes
 ```
 
 公開すると、既定でサイト内のお知らせ（ポップアップ）も更新されます。
+
+### 予約投稿する（指定日時に自動公開）
+
+このサイト自体には予約投稿の機能がありません。
+そのため、このツールが「公開処理」を指定日時まで待機させます。
+
+#### Web画面から
+
+1. `start-server.bat` でサーバーを起動
+2. 記事を生成し、プレビューの「予約日時（日本時間）」を入力
+3. 「予約投稿する」を押す
+4. 「その他の機能」→「予約投稿」で一覧・取消ができます
+
+#### コマンドから
+
+```powershell
+# 最新の下書きを 2026-11-05 08:00 に予約
+node src/cli.mjs schedule latest --at "2026-11-05 08:00"
+
+# 下書きを指定して予約
+node src/cli.mjs schedule drafts/2026-11-05-act-xxxx.json --at "2026-11-05 08:00"
+
+# 予約の一覧・取消
+node src/cli.mjs schedule-list
+node src/cli.mjs schedule-cancel sched-xxxx
+```
+
+日時は **日本時間** です。`2030-01-01T09:00` のようなISO形式や、`+30m` / `+2h` / `+1d` の相対指定も使えます。
+
+#### 自動で実行されるようにする（最初に1回だけ）
+
+```powershell
+node src/cli.mjs schedule-install
+```
+
+または `setup-scheduler.bat` をダブルクリックします。
+Windows タスクスケジューラに「1分ごとに予約を確認するタスク」が登録され、
+Webサーバーを開いていなくても予約が公開されます。
+
+- パソコンの電源が入っていて、ログオンしている必要があります
+- スリープ中に日時を過ぎた場合は、復帰したあとに公開されます（少し遅れます）
+- 解除: `node src/cli.mjs schedule-uninstall` または `remove-scheduler.bat`
+- 予約内容は `schedule.json` に保存されます（Git管理外）
+
+> パソコンの電源が切れている間も定刻に公開したい場合は、クラウド上で動かす必要があります。
+> 必要な場合はご相談ください（GitHub Actions などで代替できます）。
 
 ### 会議録から投稿する（おすすめの型）
 
@@ -180,6 +226,13 @@ node src/cli.mjs import drafts/response.json --source samples/会議録サンプ
 | `node src/cli.mjs preview drafts/x.json` | プレビュー再生成 |
 | `node src/cli.mjs publish drafts/x.json --yes` | 公開 |
 | `node src/cli.mjs publish latest` | 最新の下書きを確認して公開 |
+| `node src/cli.mjs schedule latest --at "2026-11-05 08:00"` | 予約投稿（日本時間） |
+| `node src/cli.mjs schedule-list` | 予約の一覧 |
+| `node src/cli.mjs schedule-cancel <予約ID>` | 予約を取り消す |
+| `node src/cli.mjs schedule-run` | 期限が来た予約を今すぐ処理 |
+| `node src/cli.mjs schedule-worker` | 1分ごとに処理し続ける |
+| `node src/cli.mjs schedule-install` | 予約の自動実行をWindowsに登録 |
+| `node src/cli.mjs schedule-uninstall` | 自動実行の登録を解除 |
 | `node src/cli.mjs run` | `inbox/` をまとめて下書き化 |
 | `node src/cli.mjs run --auto` | `inbox/` をまとめて公開 |
 | `node src/cli.mjs delete act-xxxx --yes` | 投稿を削除 |
@@ -198,7 +251,28 @@ node src/cli.mjs import drafts/response.json --source samples/会議録サンプ
 
 パソコンをサーバーとして動かし、ブラウザから操作できます。
 
-### 起動
+### Windowsアプリとして使う（Node不要・推奨）
+
+`npm run electron:build:win` でビルドしたインストーラ  
+`dist/RyokuyuAutopost Setup 1.0.0.exe` を実行するとアプリがインストールされます。  
+デスクトップにショートカットが作成され、ダブルクリックでアプリが起動します（コンソールなし）。
+
+開発時は `npm run electron` で起動できます。
+
+> Mac版は GitHub Actions でビルドできます（`.github/workflows/build.yml`）。  
+> Windows版・Mac版ともインストーラを配布できます。
+
+### Mac版のビルド
+
+Mac版は GitHub Actions でビルドできます。
+
+1. GitHub にプッシュし、`v1.0.0` のようなタグを打つ
+2. Actions タブでビルドが走り、`RyokuyuAutopost-*.dmg` が Artifacts に生成されます
+3. ダウンロードして配布できます
+
+> Mac版も「設定」タブから API を入力できます。バックグラウンド実行（予約投稿）は Mac の launchd で設定する必要があります（別途ご相談ください）。
+
+### 起動（Node版）
 
 ```powershell
 # 方法A: バッチファイルをダブルクリック
@@ -217,7 +291,7 @@ node src/server.mjs
 
 - ダッシュボード：AI設定・下書き・最近の投稿・inbox の確認
 - 記事生成：内容メモを貼り付けて下書き生成 → プレビュー → 承認して公開
-- 予約投稿：下書きを選んで日時を指定 → サーバーが1分ごとにチェックして自動公開
+- 予約投稿：下書きを選んで日時を指定 → バックグラウンドで1分ごとにチェックして自動公開
 - 公約：一覧・追加・更新・削除
 - 目安箱：一覧・返信
 - アンケート：一覧・作成・締切
@@ -233,7 +307,7 @@ powershell -ExecutionPolicy Bypass -File scripts\\register-server-task.ps1
 ### 注意
 
 - サーバーは **localhost のみ**で待ち受けます。外部公開はしません（セキュリティのため）。
-- 予約投稿は引き続き Windows タスクスケジューラ（`scripts/register-task.ps1`）で動きます。
+- 予約投稿をサーバーなしでも動かすには、`setup-scheduler.bat` で自動実行タスクを登録してください。
 - サーバーを止めるには、起動したコマンドウィンドウを閉じるか `taskkill /F /IM node.exe` を実行してください。
 
 ---
@@ -258,6 +332,10 @@ schtasks /Delete /TN RyokuyuAutoPost /F
 ```
 
 ログは `logs/run.log` と `logs/publish.log` に残ります。
+予約投稿の実行ログは `logs/schedule.log` に残ります。
+
+> 予約投稿だけを使う場合、毎日のタスク登録は不要です。
+> `node src/cli.mjs schedule-install`（または `setup-scheduler.bat`）を1回実行してください。
 
 > 自動公開は、素材メモの内容がそのまま学校のサイトに出ることを意味します。
 > 最初は下書き運用で文体を確認することをおすすめします。
@@ -297,8 +375,11 @@ Web Push通知（`/api/push/broadcast`）は送信しません。
 ```
 ryokuyu-autopost/
 ├─ start.bat                かんたんモード起動（CLI）
-├─ start-server.bat         Web管理画面を起動
+├─ start-server.bat         Web管理画面を起動（Node版）
+├─ setup-scheduler.bat      予約投稿の自動実行を登録
+├─ remove-scheduler.bat     予約投稿の自動実行を解除
 ├─ config.json              サイト設定・既定値
+├─ schedule.json            予約投稿キュー（Git管理外）
 ├─ .env                     AI APIキー（任意）
 ├─ inbox/                   投稿ネタのメモ（.md）
 ├─ templates/               会議録などのテンプレート
@@ -308,19 +389,26 @@ ryokuyu-autopost/
 ├─ logs/                    実行ログ
 ├─ backups/                 公開前の設定バックアップ
 ├─ public/                  Web管理画面のHTML
+├─ electron/
+│  ├─ main.cjs              Electronメインプロセス
+│  └─ preload.js            プリロード
 ├─ src/
 │  ├─ cli.mjs               コマンド本体
 │  ├─ server.mjs            Webサーバー
+│  ├─ launcher.cjs          Windowsアプリ起動用（サーバー＋ブラウザ）
 │  ├─ ai.mjs                AI呼び出し（Gemini / OpenAI互換）
 │  ├─ prompt.mjs            プロンプト・記事フォーマット
 │  ├─ firestore.mjs         Firestore RESTクライアント
 │  ├─ notes.mjs             メモ解析・Markdown変換
 │  ├─ html.mjs              HTMLサニタイズ
+│  ├─ schedule.mjs          予約投稿キュー・実行
 │  └─ publish.mjs           公開・通知
 └─ scripts/
    ├─ run-daily.ps1         定期実行用
    ├─ register-task.ps1     タスク登録用（記事の定期投稿）
    ├─ register-server-task.ps1  サーバーの自動起動登録
+   ├─ register-scheduler-task.ps1    予約投稿の1分チェック登録
+   ├─ unregister-scheduler-task.ps1  予約投稿の登録解除
    ├─ snapshot.mjs          設定のバックアップ
    └─ restore.mjs           設定の復元
 ```

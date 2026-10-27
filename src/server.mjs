@@ -7,10 +7,11 @@ import { generateArticle, resolveProvider } from "./ai.mjs";
 import { validateDraft, publishDraft, writePreview } from "./publish.mjs";
 import { CATEGORIES } from "./prompt.mjs";
 import { htmlToText } from "./html.mjs";
+import { addJob, cancelJob, loadSchedule, runDue, parseWhen } from "./schedule.mjs";
 
 loadEnv();
-const config = loadConfig();
-const store = createStore(config);
+let config = loadConfig();
+let store = createStore(config);
 const PORT = Number(process.env.PORT || 3000);
 
 function todayJst() {
@@ -31,64 +32,13 @@ function readJsonFile(abs) {
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   return JSON.parse(text);
 }
-function loadSchedule() {
-  const file = path.join(ROOT, "schedule.json");
-  if (!fs.existsSync(file)) return [];
-  try { return readJsonFile(path.join(ROOT, "schedule.json")); } catch { return []; }
-}
-function saveSchedule(jobs) {
-  fs.writeFileSync(path.join(ROOT, "schedule.json"), JSON.stringify(jobs, null, 2), "utf8");
-}
 async function runScheduledTick() {
-  const now = new Date();
-  const jobs = loadSchedule();
-  let changed = false;
-  for (const job of jobs) {
-    if (job.status !== "pending") continue;
-    if (new Date(job.publishAt) > now) continue;
-    job.status = "running";
-    saveSchedule(jobs);
-    try {
-      if (job.type === "activity" || !job.type) {
-        let file = job.file;
-        if (!path.isAbsolute(file) && !file.startsWith("drafts") && !file.startsWith("inbox")) {
-          file = path.join("drafts", file);
-        }
-        const abs = path.join(ROOT, file);
-        const draft = readJsonFile(abs);
-        const result = await publishDraft(draft, config, { dryRun: false, notice: job.notice, force: false });
-        job.result = { id: result.document.id, url: `${config.site.baseUrl}/activity/${result.document.id}` };
-      } else if (job.type === "promise-update") {
-        await store.updateDoc(`promises/${job.promiseId}`, job.patch);
-        job.result = { promiseId: job.promiseId, patch: job.patch };
-      } else if (job.type === "promise-add") {
-        const id = job.promiseId || `promise-${Date.now()}`;
-        const doc = { id, ...job.data };
-        await store.createDoc(`promises/${id}`, doc);
-        job.result = { id };
-      } else if (job.type === "suggest-reply") {
-        await store.updateDoc(`suggestions/${job.suggestionId}`, { reply: job.reply, status: job.status2 || "対応済" });
-        job.result = { suggestionId: job.suggestionId };
-      } else if (job.type === "form-create") {
-        const id = job.formId || `form-${Date.now()}`;
-        const doc = { id, ...job.data };
-        await store.createDoc(`forms/${id}`, doc);
-        job.result = { id };
-      } else if (job.type === "form-close") {
-        await store.updateDoc(`forms/${job.formId}`, { is_open: false });
-        job.result = { formId: job.formId };
-      } else {
-        throw new Error(`不明なタイプ: ${job.type}`);
-      }
-      job.status = "done";
-      job.publishedAt = new Date().toISOString();
-    } catch (e) {
-      job.status = "failed";
-      job.error = e.message;
-    }
-    changed = true;
+  const result = await runDue();
+  if (result.busy) return;
+  for (const item of result.processed) {
+    if (!item.ok) console.error(`予約投稿 失敗: ${item.job.id} ${item.error}`);
+    else if (!item.result?.skipped) console.log(`予約投稿 公開: ${item.job.title || item.job.id}`);
   }
-  if (changed) saveSchedule(jobs);
 }
 
 function json(res, status, data) {
@@ -243,22 +193,42 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === "/api/schedule" && req.method === "POST") {
       const body = await readBody(req);
-      if (!body.publishAt) throw new Error("publishAt は必須です");
-      const jobs = loadSchedule();
-      const job = { id: `sched-${Date.now()}`, status: "pending", createdAt: new Date().toISOString(), ...body };
-      jobs.push(job);
-      saveSchedule(jobs);
+      if (!body.file) throw new Error("下書きファイル（file）を指定してください");
+      const when = parseWhen(body.publishAt);
+      if (when.getTime() < Date.now() - 2 * 60 * 1000) {
+        throw new Error("過去の日時は予約できません。未来の日時を指定してください。");
+      }
+      const job = addJob({
+        file: body.file,
+        publishAt: when,
+        notice: body.notice === false ? false : undefined,
+        force: Boolean(body.force),
+      });
       return json(res, 200, job);
     }
     if (pathname === "/api/schedule/cancel" && req.method === "POST") {
       const body = await readBody(req);
-      const jobs = loadSchedule();
-      const job = jobs.find((j) => j.id === body.id);
-      if (!job) throw new Error("予約が見つかりません");
-      if (job.status === "done") throw new Error("公開済みの予約はキャンセルできません");
-      job.status = "cancelled";
-      saveSchedule(jobs);
-      return json(res, 200, { ok: true });
+      const job = cancelJob(body.id);
+      return json(res, 200, { ok: true, job });
+    }
+    if (pathname === "/api/config" && req.method === "GET") {
+      return json(res, 200, config);
+    }
+    if (pathname === "/api/config" && req.method === "POST") {
+      const body = await readBody(req);
+      // ネストした設定をマージ
+      const next = { ...config, ...body };
+      if (body.site) next.site = { ...config.site, ...body.site };
+      if (body.ai) next.ai = { ...config.ai, ...body.ai };
+      if (body.defaults) next.defaults = { ...config.defaults, ...body.defaults };
+      if (body.publish) next.publish = { ...config.publish, ...body.publish };
+      if (body.run) next.run = { ...config.run, ...body.run };
+      // 保存
+      const file = path.join(ROOT, "config.json");
+      fs.writeFileSync(file, JSON.stringify(next, null, 2), "utf8");
+      config = next;
+      store = createStore(config);
+      return json(res, 200, { ok: true, config });
     }
     json(res, 404, { error: "not found" });
   } catch (e) {

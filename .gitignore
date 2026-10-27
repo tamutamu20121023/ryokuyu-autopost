@@ -13,9 +13,12 @@ backups/
 node_modules/
 *.log
 
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
+# Build output
+dist/
+node_modules/
 
+# Windows app (built)
+*.exe
 schedule.json
+schedule.json.lock
+schedule.json.broken-*

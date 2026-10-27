@@ -11,8 +11,8 @@ export function resolveProvider(config, noAi = false) {
   if (noAi) return { name: "template" };
 
   const requested = (process.env.AI_PROVIDER || config.ai.provider || "auto").toLowerCase();
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-  const openaiKey = process.env.OPENAI_API_KEY || "";
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || config?.ai?.geminiApiKey || "";
+  const openaiKey = process.env.OPENAI_API_KEY || config?.ai?.openaiApiKey || "";
 
   if (requested === "gemini" || requested === "auto") {
     if (geminiKey) {

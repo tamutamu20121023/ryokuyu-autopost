@@ -1,4 +1,4 @@
-﻿# inbox/ のメモを1件ずつ処理する（タスクスケジューラ用）
+# inbox/ のメモを1件ずつ処理する（タスクスケジューラ用）
 # 既定は下書き作成のみ。自動公開する場合は config.json の run.autoPublish を true にするか、-Auto を付ける。
 
 param(

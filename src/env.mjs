@@ -2,7 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+function computeRoot() {
+  if (process.env.RYOKUYU_ROOT) return path.resolve(process.env.RYOKUYU_ROOT);
+  try {
+    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  } catch {
+    // バンドル実行時（SEA など）は実行ファイルのあるフォルダをルートにする
+    return path.dirname(process.execPath);
+  }
+}
+
+export const ROOT = computeRoot();
 
 /** .env を process.env に読み込む（既存の環境変数は優先） */
 export function loadEnv() {

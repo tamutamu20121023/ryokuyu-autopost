@@ -1,4 +1,4 @@
-﻿# Windows タスクスケジューラに毎日の実行を登録する
+# Windows タスクスケジューラに毎日の実行を登録する
 # 例: .\scripts\register-task.ps1 -Time 18:00
 #     .\scripts\register-task.ps1 -Time 18:00 -Auto   （生成と同時に公開）
 

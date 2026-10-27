@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "緑友役員会ポータル（ryokuyukai.ai.studio）活動記録 自動投稿ツール",
+  "main": "electron/main.cjs",
+  "description": "Ryokuyu Autopost Tool",
   "engines": {
     "node": ">=18"
   },
@@ -13,6 +14,54 @@
     "generate": "node src/cli.mjs generate",
     "publish": "node src/cli.mjs publish",
     "run": "node src/cli.mjs run",
+    "schedule": "node src/cli.mjs schedule",
+    "schedule:list": "node src/cli.mjs schedule-list",
+    "schedule:run": "node src/cli.mjs schedule-run",
+    "schedule:worker": "node src/cli.mjs schedule-worker",
+    "electron": "electron .",
+    "electron:build:win": "electron-builder --win",
+    "electron:build:mac": "electron-builder --mac",
     "server": "node src/server.mjs"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.ryokuyukai.autopost",
+    "productName": "RyokuyuAutopost",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "public/**/*",
+      "config.json",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": ".",
+        "to": "app",
+        "filter": [
+          "src/**/*",
+          "public/**/*",
+          "config.json",
+          ".env.example"
+        ]
+      }
+    ],
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

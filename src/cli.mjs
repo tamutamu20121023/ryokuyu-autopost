@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
+import { spawnSync } from "node:child_process";
 import { stdin as input, stdout as output } from "node:process";
 import { ROOT, loadEnv, loadConfig, ensureDir, logLine } from "./env.mjs";
 import { createStore } from "./firestore.mjs";
@@ -10,6 +11,7 @@ import { generateArticle, buildCopyPrompt, resolveProvider, extractJson } from "
 import { validateDraft, publishDraft, writePreview } from "./publish.mjs";
 import { CATEGORIES, normalizeAiResult } from "./prompt.mjs";
 import { htmlToText } from "./html.mjs";
+import { addJob, cancelJob, loadSchedule, runDue, formatJst, parseWhen, statusLabel } from "./schedule.mjs";
 
 loadEnv();
 const config = loadConfig();
@@ -60,6 +62,14 @@ function printHelp() {
   node src/cli.mjs import <返答.json> --source inbox/x.md   AIの返答を取り込む
   node src/cli.mjs preview <draft.json>           プレビューHTMLを再生成（latest可）
   node src/cli.mjs publish <draft.json> --yes     下書きを公開（latest可）
+  node src/cli.mjs schedule latest --at "2026-11-05 08:00"
+                                                  予約投稿（日本時間）
+  node src/cli.mjs schedule-list                  予約の一覧
+  node src/cli.mjs schedule-cancel <予約ID>       予約を取り消す
+  node src/cli.mjs schedule-run                   期限が来た予約を今すぐ処理
+  node src/cli.mjs schedule-worker                1分ごとに処理し続ける
+  node src/cli.mjs schedule-install               Windowsに自動実行を登録
+  node src/cli.mjs schedule-uninstall             自動実行の登録を解除
   node src/cli.mjs run [--auto]                   inbox/ をまとめて処理
   node src/cli.mjs delete <act-id> --yes          投稿を削除（取り消し不可）
 
@@ -74,6 +84,12 @@ publish のオプション:
   --dry-run               書き込まず内容だけ表示
   --no-notice             サイト内のお知らせ（ポップアップ）を更新しない
   --force                 同一タイトルでも公開する
+
+schedule のオプション:
+  --at "YYYY-MM-DD HH:mm" 公開日時（日本時間。例: 2026-11-05 08:00）
+  --no-notice             公開時にお知らせを更新しない
+  --force                 同一タイトルでも公開する
+  --yes                   過去日時でも確認なしで予約する
 
 run のオプション:
   --auto                  生成後そのまま公開（既定は下書きのみ）
@@ -459,6 +475,155 @@ async function cmdPreview(opts) {
   console.log(preview);
 }
 
+/** 予約投稿: 下書きと日時を登録する */
+async function cmdSchedule(opts) {
+  const fileArg = opts._[0] || "latest";
+  let at = opts.at;
+  if (!at) throw new Error('公開日時を指定してください: --at "2026-11-05 08:00"');
+
+  // --at 2026-11-05 08:00 のようにシェルで分割された場合を補完
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(String(at))) {
+    const time = opts._.slice(1).find((v) => /^\d{1,2}:\d{2}$/.test(v));
+    if (time) at = `${at} ${time}`;
+  }
+
+  const when = parseWhen(at);
+  const abs = resolveDraftPath(fileArg);
+  if (!fs.existsSync(abs)) throw new Error(`下書きが見つかりません: ${abs}`);
+
+  const isPast = when.getTime() <= Date.now();
+  if (isPast && !opts.yes) {
+    const ok = await confirm(
+      `${formatJst(when)} は過去の日時です。次のチェックで即公開されます。予約しますか？`
+    );
+    if (!ok) {
+      console.log("中止しました。");
+      return;
+    }
+  }
+
+  const job = addJob({
+    file: abs,
+    publishAt: when,
+    notice: opts["no-notice"] ? false : undefined,
+    force: Boolean(opts.force),
+  });
+
+  console.log("\n✓ 予約しました");
+  console.log(`  予約ID  : ${job.id}`);
+  console.log(`  公開日時: ${formatJst(job.publishAt)}（日本時間）`);
+  console.log(`  下書き  : ${job.file}`);
+  console.log(`  タイトル: ${job.title}`);
+  if (isPast) console.log("\n※ 過去の日時なので、次の実行で公開されます。");
+  console.log("\n確認: node src/cli.mjs schedule-list");
+}
+
+function cmdScheduleList() {
+  const jobs = loadSchedule().sort((a, b) => new Date(a.publishAt) - new Date(b.publishAt));
+  if (!jobs.length) {
+    console.log("予約はありません。");
+    return;
+  }
+  console.log("公開日時（日本時間）   状態  予約ID / タイトル");
+  for (const job of jobs) {
+    console.log(
+      `${formatJst(job.publishAt)}  ${statusLabel(job.status)}  ${job.id}  ${job.title || job.type}`
+    );
+    if (job.file) console.log(`  下書き: ${job.file}`);
+    if (job.error) console.log(`  ! ${job.error}`);
+    if (job.result?.url) console.log(`  → ${job.result.url}`);
+  }
+  const pending = jobs.filter((j) => j.status === "pending").length;
+  console.log(`\n予約済: ${pending}件 / 全${jobs.length}件`);
+}
+
+function cmdScheduleCancel(opts) {
+  const id = opts._[0];
+  if (!id) throw new Error("予約IDを指定してください（schedule-list で確認できます）");
+  const job = cancelJob(id);
+  console.log(`✓ 取り消しました: ${job.id}`);
+  console.log(`  ${formatJst(job.publishAt)}  ${job.title || job.type}`);
+}
+
+async function cmdScheduleRun(opts) {
+  const dryRun = Boolean(opts["dry-run"]);
+  const result = await runDue({ dryRun });
+
+  if (result.busy) {
+    console.log("別のプロセスが予約を処理中です。今回はスキップしました。");
+    return;
+  }
+  if (!result.processed.length) {
+    console.log("実行対象の予約はありません。");
+    return;
+  }
+
+  for (const item of result.processed) {
+    const title = item.job.title || item.job.type;
+    if (!item.ok) {
+      console.log(`✗ 失敗  ${item.job.id}  ${title}`);
+      console.log(`  ${item.error}`);
+    } else if (item.result?.dryRun) {
+      console.log(`○ dry-run  ${item.job.id}  ${title}`);
+    } else if (item.result?.skipped) {
+      console.log(`○ スキップ  ${item.job.id}  ${title}: ${item.result.reason}`);
+    } else {
+      console.log(`✓ 公開  ${item.job.id}  ${title}`);
+      if (item.result?.url) console.log(`  ${item.result.url}`);
+    }
+  }
+  if (!dryRun) console.log(`\n残りの予約: ${result.pending}件`);
+}
+
+async function cmdScheduleWorker(opts) {
+  const intervalSec = Math.max(10, Number(opts.interval || 60));
+  let running = false;
+
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const result = await runDue();
+      if (result.busy) return;
+      for (const item of result.processed) {
+        if (!item.ok) console.error(`✗ 失敗: ${item.job.id} ${item.error}`);
+        else if (!item.result?.skipped) console.log(`✓ 公開: ${item.job.title || item.job.id} → ${item.result?.url || ""}`);
+      }
+    } catch (err) {
+      console.error(`予約処理エラー: ${err.message}`);
+    } finally {
+      running = false;
+    }
+  };
+
+  console.log(`予約投稿ワーカーを開始しました（${intervalSec}秒ごと / Ctrl+C で終了）`);
+  await tick();
+  setInterval(tick, intervalSec * 1000);
+}
+
+function runPowerShell(scriptName) {
+  const script = path.join(ROOT, "scripts", scriptName);
+  if (!fs.existsSync(script)) throw new Error(`スクリプトが見つかりません: ${script}`);
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+    { stdio: "inherit" }
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`${scriptName} が失敗しました（終了コード ${result.status}）`);
+}
+
+function cmdScheduleInstall() {
+  runPowerShell("register-scheduler-task.ps1");
+  console.log("\n予約投稿の自動実行を登録しました。");
+}
+
+function cmdScheduleUninstall() {
+  runPowerShell("unregister-scheduler-task.ps1");
+  console.log("\n予約投稿の自動実行を解除しました。");
+}
+
+
 /** キーなし運用: AIに貼るプロンプトを書き出す */
 async function cmdPrompt(opts) {
   const file = opts.file || opts._[0];
@@ -731,6 +896,20 @@ async function main() {
       return cmdPublish(opts);
     case "preview":
       return cmdPreview(opts);
+    case "schedule":
+      return cmdSchedule(opts);
+    case "schedule-list":
+      return cmdScheduleList();
+    case "schedule-cancel":
+      return cmdScheduleCancel(opts);
+    case "schedule-run":
+      return cmdScheduleRun(opts);
+    case "schedule-worker":
+      return cmdScheduleWorker(opts);
+    case "schedule-install":
+      return cmdScheduleInstall();
+    case "schedule-uninstall":
+      return cmdScheduleUninstall();
     case "prompt":
       return cmdPrompt(opts);
     case "import":
